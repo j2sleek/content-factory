@@ -1,0 +1,9 @@
+functions-framework==3.*
+requests==2.31.0
+beautifulsoup4==4.12.2
+feedparser==6.0.10
+lxml==4.9.3
+pyyaml==6.0.1
+python-dateutil==2.8.2
+pytz==2023.3
+regex==2023.10.3

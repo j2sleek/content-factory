@@ -1,0 +1,28 @@
+name: Daily Funding Scrape Trigger
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 6 AM UTC daily
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Force run even if no new data'
+        required: false
+        default: 'false'
+
+jobs:
+  trigger-scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Cloud Function Scraper
+        run: |
+          curl -X POST "${{ secrets.SCRAPER_CF_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"triggered_by": "github_actions", "run_id": "'$(date +%s)'"}' \
+            --fail-with-body
+        env:
+          SCRAPER_CF_URL: ${{ secrets.SCRAPER_CF_URL }}
+      
+      - name: Log trigger
+        run: |
+          echo "Scraper triggered at $(date -u)"

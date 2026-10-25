@@ -1,0 +1,86 @@
+# African Startup Funding News Sources
+# RSS-first approach for reliability
+
+rss_feeds:
+  - name: "TechCabal"
+    url: "https://techcabal.com/feed/"
+    enabled: true
+    category: "west_africa"
+    priority: 1
+    funding_keywords: ["funding", "raise", "raised", "series", "seed", "venture", "investment"]
+  
+  - name: "Tech In Africa"
+    url: "https://www.techinafrica.com/feed/"
+    enabled: true
+    category: "pan_africa"
+    priority: 1
+    funding_keywords: ["funding", "raise", "raised", "series", "seed"]
+  
+  - name: "Disrupt Africa"
+    url: "https://old.disruptafrica.com/feed/"
+    enabled: true
+    category: "pan_africa"
+    priority: 1
+    funding_keywords: ["funding", "raise", "series", "investment"]
+  
+  - name: "Ventureburn"
+    url: "https://ventureburn.com/feed/"
+    enabled: true
+    category: "southern_africa"
+    priority: 1
+    funding_keywords: ["funding", "raise", "raised", "series"]
+  
+  - name: "Agence Ecofin"
+    url: "https://agenceecofin.com/feed"
+    enabled: true
+    category: "francophone"
+    priority: 1
+    funding_keywords: ["financement", "levée", "tour de table", "fonds", "investissement"]
+  
+  - name: "Nairametrics"
+    url: "https://nairametrics.com/feed/"
+    enabled: true
+    category: "nigeria"
+    priority: 2
+    funding_keywords: ["funding", "raise", "investment", "series"]
+  
+  - name: "TechCrunch Africa"
+    url: "https://techcrunch.com/tag/africa/feed/"
+    enabled: true
+    category: "pan_africa"
+    priority: 2
+    funding_keywords: ["funding", "raised", "series", "seed"]
+  
+  - name: "TC Insights"
+    url: "https://insights.techcabal.com/rss/"
+    enabled: true
+    category: "data"
+    priority: 3
+    funding_keywords: ["funding", "investment", "report"]
+
+# HTML scraping fallback (use sparingly)
+html_sources:
+  - name: "Africa The Big Deal"
+    url: "https://thebigdeal.substack.com/"
+    enabled: false  # Newsletter - needs special handling
+    scrape_method: "bs4"
+    selectors:
+      articles: ".post-preview"
+      title: ".post-preview-title"
+      link: ".post-preview-title a"
+      date: ".post-meta"
+    priority: 1
+
+# Filtering
+filters:
+  require_funding_keywords: true
+  min_title_length: 10
+  exclude_keywords: ["hiring", "job", "webinar", "event", "conference"]
+  
+# Normalization
+normalization:
+  extract_amount: true
+  extract_country: true
+  extract_round: true
+  extract_investors: true
+  use_ai_enrichment: false  # Keep simple for MVP

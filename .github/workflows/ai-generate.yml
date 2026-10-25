@@ -1,0 +1,59 @@
+name: AI Content Generation
+
+on:
+  repository_dispatch:
+    types: [trigger-ai-generation]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Pipeline run ID'
+        required: false
+      force:
+        description: 'Force generation'
+        required: false
+        default: 'false'
+
+jobs:
+  generate-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Setup Google Credentials
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > /tmp/service_account.json
+      
+      - name: Generate AI Content with opencode
+        run: |
+          python scripts/generate_content.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: /tmp/service_account.json
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          RUN_ID: ${{ github.event.client_payload.run_id || github.event.inputs.run_id }}
+          OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL || 'big-pickle' }}
+      
+      - name: Upload generated content
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-content
+          path: |
+            output/
+            *.json
+          retention-days: 7
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f /tmp/service_account.json
