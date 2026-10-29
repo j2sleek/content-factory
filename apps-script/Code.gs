@@ -230,7 +230,12 @@ function testScraper() {
  * Setup function - run once to create sheets
  */
 function setupSheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetId = PROPS.getProperty('SHEET_ID');
+  if (!sheetId) {
+    throw new Error('SHEET_ID not set in Script Properties');
+  }
+  
+  const ss = SpreadsheetApp.openById(sheetId);
   const sheets = ['raw_deals', 'normalized_deals', 'shorts_scripts', 'weekly_roundup', 'pipeline_state', 'errors'];
   
   sheets.forEach(name => {
@@ -248,6 +253,14 @@ function setupSheets() {
     rawSheet.getRange(1, 1, 1, 16).setFontWeight('bold');
   }
   
+  const normalizedSheet = ss.getSheetByName('normalized_deals');
+  if (normalizedSheet.getLastRow() === 0) {
+    normalizedSheet.appendRow(['ID', 'Source', 'Title', 'URL', 'Summary', 'Published At',
+      'Amount', 'Currency', 'Amount USD', 'Round', 'Countries', 
+      'Sector', 'Investors', 'Startup Name', 'Status', 'Normalized At', 'Run ID']);
+    normalizedSheet.getRange(1, 1, 1, 17).setFontWeight('bold');
+  }
+  
   const shortsSheet = ss.getSheetByName('shorts_scripts');
   if (shortsSheet.getLastRow() === 0) {
     shortsSheet.appendRow(['Deal ID', 'Platform', 'Hook', 'Script', 'Caption', 'Hashtags', 
@@ -261,4 +274,12 @@ function setupSheets() {
       'Outro', 'Full Script', 'Timestamps', 'Status', 'Generated At']);
     weeklySheet.getRange(1, 1, 1, 10).setFontWeight('bold');
   }
+  
+  const pipelineSheet = ss.getSheetByName('pipeline_state');
+  if (pipelineSheet.getLastRow() === 0) {
+    pipelineSheet.appendRow(['Timestamp', 'Run ID', 'Stage', 'Status', 'Count', 'Source']);
+    pipelineSheet.getRange(1, 1, 1, 6).setFontWeight('bold');
+  }
+  
+  console.log('Sheets setup complete');
 }
