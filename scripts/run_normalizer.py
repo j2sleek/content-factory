@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-GitHub Actions runner for normalizer - Production Ready
-Pulls items from Google Sheets or processes webhook payload, normalizes and enriches data
+GitHub Actions runner for normalizer - Production Ready v2
+Pulls items from Google Sheets, normalizes, enriches with article content scraping,
+and prepares for AI enhancement with founder/research data
 """
 import json
 import os
@@ -11,6 +12,8 @@ from datetime import datetime, timezone
 import requests
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from bs4 import BeautifulSoup
+import re
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,15 +25,20 @@ class Normalizer:
         self.creds_path = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
         self.router_url = os.environ.get('APPS_SCRIPT_ROUTER_URL')
         self.run_id = os.environ.get('RUN_ID') or str(uuid.uuid4())
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
         
         if not self.router_url:
             raise ValueError("APPS_SCRIPT_ROUTER_URL not set")
         
-        if self.sheet_id and self.creds_path:
+        if self.sheet_id and self.creds_path and os.path.exists(self.creds_path):
             self.setup_sheets()
         else:
             self.client = None
             self.spreadsheet = None
+            log_message("Running without Google Sheets credentials - will only post to router", "WARNING")
     
     def setup_sheets(self):
         """Setup Google Sheets connection"""
@@ -76,7 +84,7 @@ class Normalizer:
                         'countries': record.get('Countries'),
                         'sector': record.get('Sector'),
                         'investors': record.get('Investors'),
-                        'row_index': idx + 2  # 1-based + header
+                        'row_index': idx + 2
                     }
                     items.append(item)
             
@@ -86,13 +94,76 @@ class Normalizer:
             log_message(f"Error reading from sheets: {e}", "ERROR")
             return []
     
+    def scrape_article_content(self, url):
+        """Scrape full article content from the URL for better context"""
+        if not url:
+            return None
+        
+        try:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Remove scripts, styles, ads
+            for tag in soup(['script', 'style', 'nav', 'footer', 'header', 'aside']):
+                tag.decompose()
+            
+            # Try to find article content
+            article_selectors = [
+                'article', '.post-content', '.entry-content', 
+                '.article-content', '.content-body', 'main'
+            ]
+            
+            content = ""
+            for selector in article_selectors:
+                elem = soup.select_one(selector)
+                if elem:
+                    content = elem.get_text(strip=True, separator=' ')
+                    break
+            
+            if not content:
+                content = soup.get_text(strip=True, separator=' ')
+            
+            # Clean up and limit
+            content = re.sub(r'\s+', ' ', content)
+            return content[:3000]  # Limit to 3000 chars
+        except Exception as e:
+            log_message(f"Failed to scrape article {url}: {e}", "WARNING")
+            return None
+    
+    def is_funding_deal(self, title, content):
+        """Check if this is actually a funding deal vs insights/metrics"""
+        text = f"{title} {content or ''}".lower()
+        
+        # Funding indicators
+        funding_words = ['raised', 'raises', 'funding', 'series', 'seed', 'investment', 
+                        'capital', 'round', 'venture', 'financing']
+        # Non-funding indicators (to filter out)
+        exclude_words = ['insights', 'report', 'metrics', 'data shows', 'survey', 
+                        'ranking', 'top', 'list of', 'analysis of']
+        
+        has_funding = any(word in text for word in funding_words)
+        has_exclude = any(word in text for word in exclude_words)
+        
+        # If it has strong funding indicators and not just a report, it's likely a deal
+        if has_funding and not (has_exclude and not any(w in text for w in ['raises', 'raised', 'secured'])):
+            return True
+        return has_funding
+    
     def normalize_item(self, item):
         """Normalize and enrich a single item"""
         title = item.get('title', '')
         summary = item.get('summary', '')
-        full_text = f"{title} {summary}"
+        url = item.get('url', '')
+        
+        # Scrape full article content
+        article_content = self.scrape_article_content(url)
+        full_text = f"{title} {summary} {article_content or ''}"
         
         normalized = dict(item)
+        
+        # Check if it's actually a funding deal
+        normalized['is_funding_deal'] = self.is_funding_deal(title, article_content)
         
         # Extract/enhance amount
         if not normalized.get('amount') or normalized.get('amount') == '':
@@ -115,25 +186,25 @@ class Normalizer:
             if countries:
                 normalized['countries'] = ', '.join(countries)
         
-        # Extract startup name from title (basic heuristic)
+        # Extract startup name
         if not normalized.get('startup_name'):
-            # Try to extract company name patterns
-            import re
-            # Look for patterns like "Startup X raises", "X raises", etc.
-            match = re.search(r'^([A-Z][A-Za-z0-9\s&]+?)\s+(?:raises|secures|gets|closes)', title)
+            match = re.search(r'^([A-Z][A-Za-z0-9\s&\.]+?)\s+(?:raises|secures|gets|closes|lands)', title)
             if match:
                 normalized['startup_name'] = match.group(1).strip()
             else:
-                # Fallback: first few words if capitalized
                 words = title.split()
                 if len(words) >= 2 and words[0][0].isupper():
                     normalized['startup_name'] = ' '.join(words[:2])
         
+        # Add enriched content for AI
+        normalized['article_content'] = article_content[:1000] if article_content else summary
+        normalized['full_context'] = full_text[:1500]
+        
         normalized['status'] = 'normalized'
         normalized['normalized_at'] = datetime.now(timezone.utc).isoformat()
         normalized['run_id'] = self.run_id
+        normalized['needs_enrichment'] = 'true'  # Flag for deeper AI research
         
-        # Clean up
         normalized.pop('row_index', None)
         
         return normalized
@@ -145,7 +216,6 @@ class Normalizer:
         
         try:
             sheet = self.spreadsheet.worksheet('raw_deals')
-            # Status is column 15 (O)
             sheet.update_cell(row_index, 15, 'normalized')
         except Exception as e:
             log_message(f"Failed to update sheet: {e}", "WARNING")
@@ -154,7 +224,6 @@ class Normalizer:
         """Main execution"""
         log_message(f"Normalizer starting - run_id: {self.run_id}")
         
-        # Get items to process
         items = self.get_unprocessed_items()
         
         if not items:
@@ -173,14 +242,18 @@ class Normalizer:
             for item in items:
                 try:
                     normalized = self.normalize_item(item)
-                    normalized_items.append(normalized)
-                    if item.get('row_index'):
+                    # Only send actual funding deals to next stage
+                    if normalized.get('is_funding_deal', True):
+                        normalized_items.append(normalized)
+                    else:
+                        log_message(f"Skipping non-funding post: {normalized.get('title')[:50]}", "INFO")
+                    if item.get('row_index') and self.spreadsheet:
                         self.update_sheet_status(item['row_index'])
                 except Exception as e:
                     log_message(f"Error normalizing item {item.get('id')}: {e}", "ERROR")
                     continue
             
-            log_message(f"Normalized {len(normalized_items)} items")
+            log_message(f"Normalized {len(normalized_items)} funding deals")
             
             payload = {
                 "stage": "normalizer",
@@ -192,7 +265,6 @@ class Normalizer:
                 "source": "github_actions_normalizer"
             }
         
-        # Send to router
         try:
             resp = requests.post(
                 self.router_url, 
