@@ -174,39 +174,40 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 export APPS_SCRIPT_ROUTER_URL="YOUR_ROUTER_URL"
+export SHEET_ID="YOUR_SHEET_ID"
+export GOOGLE_SERVICE_ACCOUNT_JSON="/path/to/service-account.json"
 PYTHONPATH=. python scripts/run_scraper.py
 ```
 
 Expected output:
 - Should scrape deals from RSS feeds
-- Should show "Router response: 200"
+- Should post to router or write directly to sheets
 - Check Google Sheet `raw_deals` tab for new rows
-- Check `pipeline_state` tab for log entry
 
 ### 4.2 Test via GitHub Actions
 1. Go to: `https://github.com/j2sleek/content-factory/actions`
 2. Click `Daily Funding Scrape` workflow (left sidebar)
 3. Click `Run workflow` dropdown > `Run workflow`
 4. Wait 1-2 minutes, click on the running workflow to see logs
-5. Check logs for success - should see "Scrape completed" and router response
+5. Check logs for success
 
 ### 4.3 Verify Data Flow
 1. **raw_deals tab** - Should have new rows with deal data
-2. **pipeline_state tab** - Should show entries: stage=scraper, status=completed
-3. **Apps Script should auto-trigger normalizer** - The router will call normalizer if items exist
-4. **normalized_deals tab** - Should populate after normalizer runs
-5. **pipeline_state** - Should show normalizer entry
+2. **normalized_deals tab** - Run normalizer to populate (filters for actual funding deals only)
+3. **shorts_scripts tab** - Run content generator to create voiceover-ready scripts
+4. **weekly_roundup tab** - Generated as part of content creation
 
-### 4.4 Test Normalizer via GitHub Actions
-If normalizer doesn't auto-trigger, run it manually:
-1. Go to Actions > Create a quick test or trigger via workflow_dispatch
-2. Or run locally: `PYTHONPATH=. python scripts/run_normalizer.py`
+### 4.4 Test Normalizer
+The normalizer now writes directly to Google Sheets as fallback if router is unavailable:
+```bash
+PYTHONPATH=. SHEET_ID=YOUR_ID GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/key.json python scripts/run_normalizer.py
+```
 
 ### 4.5 Test AI Content Generation
-1. Go to Actions > `AI Content Generation` > `Run workflow`
-2. Fill inputs if desired (optional)
-3. Click `Run workflow`
-4. Check `shorts_scripts` and `weekly_roundup` tabs for generated content
+```bash
+PYTHONPATH=. SHEET_ID=YOUR_ID GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/key.json python scripts/generate_deep_content.py
+PYTHONPATH=. SHEET_ID=YOUR_ID GOOGLE_SERVICE_ACCOUNT_JSON=/path/to/key.json python /tmp/gen_content.py
+```
 
 ---
 
