@@ -22,7 +22,7 @@ function doPost(e) {
     
     // Write items to sheet if present
     if (data.items && Array.isArray(data.items) && data.items.length > 0) {
-      writeItemsToSheet(ss, data.stage, data.items);
+      writeItemsToSheet(ss, data.stage, data.items, data.run_id);
     }
     
     // Route to next stage if completed
@@ -68,7 +68,7 @@ function logPipelineState(ss, data) {
 /**
  * Write items to appropriate sheet
  */
-function writeItemsToSheet(ss, stage, items) {
+function writeItemsToSheet(ss, stage, items, runId) {
   let sheetName;
   if (stage === 'scraper') {
     sheetName = 'raw_deals';
@@ -132,7 +132,7 @@ function writeItemsToSheet(ss, stage, items) {
         item.sector || '',
         item.investors || '',
         'new',
-        data.run_id || ''
+        runId || ''
       ]);
     } else if (sheetName === 'normalized_deals') {
       sheet.appendRow([
@@ -151,7 +151,7 @@ function writeItemsToSheet(ss, stage, items) {
         item.startup_name || '',
         item.status || 'normalized',
         item.normalized_at || new Date().toISOString(),
-        data.run_id || ''
+        runId || ''
       ]);
     }
   });
