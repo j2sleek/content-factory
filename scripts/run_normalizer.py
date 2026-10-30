@@ -132,23 +132,38 @@ class Normalizer:
             return None
     
     def is_funding_deal(self, title, content):
-        """Check if this is actually a funding deal vs insights/metrics"""
+        """Check if this is actually a funding deal vs insights/metrics/events"""
         text = f"{title} {content or ''}".lower()
         
-        # Funding indicators
-        funding_words = ['raised', 'raises', 'funding', 'series', 'seed', 'investment', 
-                        'capital', 'round', 'venture', 'financing']
-        # Non-funding indicators (to filter out)
-        exclude_words = ['insights', 'report', 'metrics', 'data shows', 'survey', 
-                        'ranking', 'top', 'list of', 'analysis of']
+        # Strong funding indicators
+        strong_funding = ['raises', 'raised', 'secures', 'secured', 'lands', 'closes', 'attracts', 'banks']
+        # Funding terms
+        funding_words = ['series', 'seed', 'pre-seed', 'pre seed', 'funding round', 'investment round', 'venture round']
+        # Amount patterns
+        has_amount = bool(re.search(r'\$\d|million|billion', text))
         
-        has_funding = any(word in text for word in funding_words)
-        has_exclude = any(word in text for word in exclude_words)
+        # Hard exclusions
+        exclude_strong = [
+            'ipo', 'initial public', 'filing', 'shares', 'listing',
+            'second fund', 'new fund', 'closes fund', 'vc fund raises',
+            'selected for', 'showcase', 'demo day', 'batch of startups',
+            'insights', 'report', 'metrics', 'survey', 'ranking', 'top 10', 'top startups',
+            'analysis', 'opinion', 'commentary'
+        ]
         
-        # If it has strong funding indicators and not just a report, it's likely a deal
-        if has_funding and not (has_exclude and not any(w in text for w in ['raises', 'raised', 'secured'])):
+        if any(ex in text for ex in exclude_strong):
+            return False
+        
+        # Must have strong funding action or funding round
+        has_action = any(w in text for w in strong_funding)
+        has_round = any(w in text for w in funding_words)
+        
+        if has_action and (has_round or has_amount):
             return True
-        return has_funding
+        if has_round and has_amount:
+            return True
+        
+        return False
     
     def normalize_item(self, item):
         """Normalize and enrich a single item"""
@@ -187,36 +202,36 @@ class Normalizer:
                 normalized['countries'] = ', '.join(countries)
         
         # Extract startup name
-        if not normalized.get('startup_name') or normalized.get('startup_name') == 'normalized':
-            # Try various patterns
+        if not normalized.get('startup_name') or normalized.get('startup_name').lower() == 'normalized':
+            # Try various patterns from title first
             patterns = [
-                r'^([A-Z][A-Za-z0-9\s&\.]{2,40}?)\s+(?:raises|secures|gets|closes|lands|attracts|banks)',
-                r"([A-Z][A-Za-z0-9\s&\.]{2,40}?)['\u2019]s\s+",
-                r'^([A-Z][A-Za-z0-9\s&\.]{2,40}?)\s+(?:Pre-Seed|Seed|Series)",
+                r"^([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)\s+(?:raises|secures|gets|closes|lands|attracts|banks)\s+",
+                r"^([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)['\u2019]s\s+",
+                r"^Egypt['\u2019]s\s+([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)\s+",
+                r"^Ghana['\u2019]s\s+([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)\s+",
+                r"^Tanzania['\u2019]s\s+([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)\s+",
+                r"^Kenya['\u2019]s\s+([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)\s+",
+                r"^Nigeria['\u2019]s\s+([A-Z][A-Za-z0-9&\.\-\s]{2,40}?)\s+",
             ]
             for pattern in patterns:
                 match = re.search(pattern, title)
                 if match:
                     name = match.group(1).strip()
-                    # Filter out common non-company words
-                    if name.lower() not in ['nigeria', 'ghana', 'kenya', 'egypt', 'tanzania', 'africa']:
+                    if name.lower() not in ['nigeria', 'ghana', 'kenya', 'egypt', 'tanzania', 'africa', 'the']:
                         normalized['startup_name'] = name
                         break
             
-            if not normalized.get('startup_name') or normalized.get('startup_name') == 'normalized':
-                # Try to extract from "X's Y" pattern
-                match = re.search(r'([A-Z][A-Za-z0-9\s&\.]{2,30}?)\s+(?:startup|platform|company)', title)
+            # Try from article content if still not found
+            if (not normalized.get('startup_name') or normalized.get('startup_name').lower() == 'normalized') and article_content:
+                match = re.search(r'([A-Z][A-Za-z0-9&\.\-]+(?:\s+[A-Z][A-Za-z0-9&\.\-]+){0,2})\s+(?:raised|secured|closed)\s+\$', article_content)
                 if match:
-                    normalized['startup_name'] = match.group(1).strip()
-                else:
-                    words = title.split()
-                    # Take first capitalized word(s) that aren't location
-                    candidates = []
-                    for w in words[:4]:
-                        if w[0].isupper() and w.lower() not in ['nigeria', 'ghana', 'kenya', 'egypt', 'tanzania', 'africa', 'the', 'how']:
-                            candidates.append(w)
-                    if candidates:
-                        normalized['startup_name'] = ' '.join(candidates[:2])
+                    name = match.group(1).strip()
+                    if len(name) > 2 and name.lower() not in ['the company', 'this company']:
+                        normalized['startup_name'] = name
+                
+            # Last resort - skip if still bad
+            if not normalized.get('startup_name') or normalized.get('startup_name').lower() == 'normalized':
+                normalized['startup_name'] = ''
         
         # Add enriched content for AI
         normalized['article_content'] = article_content[:1000] if article_content else summary
