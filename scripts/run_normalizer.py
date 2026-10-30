@@ -187,14 +187,36 @@ class Normalizer:
                 normalized['countries'] = ', '.join(countries)
         
         # Extract startup name
-        if not normalized.get('startup_name'):
-            match = re.search(r'^([A-Z][A-Za-z0-9\s&\.]+?)\s+(?:raises|secures|gets|closes|lands)', title)
-            if match:
-                normalized['startup_name'] = match.group(1).strip()
-            else:
-                words = title.split()
-                if len(words) >= 2 and words[0][0].isupper():
-                    normalized['startup_name'] = ' '.join(words[:2])
+        if not normalized.get('startup_name') or normalized.get('startup_name') == 'normalized':
+            # Try various patterns
+            patterns = [
+                r'^([A-Z][A-Za-z0-9\s&\.]{2,40}?)\s+(?:raises|secures|gets|closes|lands|attracts|banks)',
+                r"([A-Z][A-Za-z0-9\s&\.]{2,40}?)['\u2019]s\s+",
+                r'^([A-Z][A-Za-z0-9\s&\.]{2,40}?)\s+(?:Pre-Seed|Seed|Series)",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, title)
+                if match:
+                    name = match.group(1).strip()
+                    # Filter out common non-company words
+                    if name.lower() not in ['nigeria', 'ghana', 'kenya', 'egypt', 'tanzania', 'africa']:
+                        normalized['startup_name'] = name
+                        break
+            
+            if not normalized.get('startup_name') or normalized.get('startup_name') == 'normalized':
+                # Try to extract from "X's Y" pattern
+                match = re.search(r'([A-Z][A-Za-z0-9\s&\.]{2,30}?)\s+(?:startup|platform|company)', title)
+                if match:
+                    normalized['startup_name'] = match.group(1).strip()
+                else:
+                    words = title.split()
+                    # Take first capitalized word(s) that aren't location
+                    candidates = []
+                    for w in words[:4]:
+                        if w[0].isupper() and w.lower() not in ['nigeria', 'ghana', 'kenya', 'egypt', 'tanzania', 'africa', 'the', 'how']:
+                            candidates.append(w)
+                    if candidates:
+                        normalized['startup_name'] = ' '.join(candidates[:2])
         
         # Add enriched content for AI
         normalized['article_content'] = article_content[:1000] if article_content else summary
